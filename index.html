@@ -10,9 +10,6 @@
   <h1>OCR SAM Choir</h1>
 
   <button id="enable">Enable Audio</button>
-  <button id="tone">Test Speaker</button>
-  <button id="test">Test Choir</button>
-  <button id="song">Play Last Scan</button>
 
   <p id="status">Loading choir.js...</p>
 
@@ -20,23 +17,20 @@
   <p>Notes: <span id="notes">—</span></p>
   <p>Lyrics: <span id="lyrics">—</span></p>
 
-  <label>
-    <input type="checkbox" id="auto" checked>
-    Automatically sing new scans
-  </label>
-
   <script type="module">
     const status = document.getElementById('status');
 
     let choir;
     let lastId = -1;
     let latest = null;
+    let audioEnabled = false;
 
     try {
       choir = await import('./choir.js');
       status.textContent = 'Ready. Click Enable Audio.';
     } catch (error) {
-      status.textContent = 'Cannot load choir.js: ' + error.message;
+      status.textContent =
+        'Cannot load choir.js: ' + error.message;
       console.error(error);
     }
 
@@ -45,6 +39,7 @@
         if (!choir) {
           throw new Error('choir.js did not load.');
         }
+
         await action();
       } catch (error) {
         status.textContent = 'ERROR: ' + error.message;
@@ -53,6 +48,11 @@
     }
 
     async function sing(notes, lyrics) {
+      if (!audioEnabled) {
+        status.textContent = 'Click Enable Audio first.';
+        return;
+      }
+
       const voices = await choir.singSamChoir(
         notes,
         [...(lyrics || 'LA')]
@@ -62,56 +62,24 @@
         `Scheduled ${voices} voice(s): ${lyrics || 'LA'}`;
     }
 
+    // Enable Audio button
     document.getElementById('enable').onclick = () =>
       run(async () => {
         const enabled = await choir.unlockAudio();
+
         if (!enabled) {
           throw new Error('Audio could not be enabled.');
         }
-        status.textContent = 'Audio enabled!';
+
+        audioEnabled = true;
+        status.textContent = 'Audio enabled! Ready to scan.';
+
+        document.getElementById('enable').disabled = true;
+        document.getElementById('enable').textContent =
+          'Audio Enabled';
       });
 
-    document.getElementById('tone').onclick = () =>
-      run(async () => {
-        await choir.unlockAudio();
-
-        // Independent speaker test
-        const ctx = new AudioContext();
-        await ctx.resume();
-
-        const oscillator = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        oscillator.frequency.value = 440;
-        oscillator.type = 'sine';
-
-        gain.gain.value = 0.15;
-
-        oscillator.connect(gain);
-        gain.connect(ctx.destination);
-
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.5);
-
-        oscillator.onended = () => ctx.close();
-
-        status.textContent = 'Playing 440 Hz test tone.';
-      });
-
-    document.getElementById('test').onclick = () =>
-      run(() => sing(['a', 'c', 'e'], 'HELLO'));
-
-    document.getElementById('song').onclick = () =>
-      run(async () => {
-        if (!latest?.notes?.length) {
-          throw new Error(
-            'No scanned notes. Press S in the camera window.'
-          );
-        }
-
-        await sing(latest.notes, latest.lyrics);
-      });
-
+    // Automatically check for new scans
     async function poll() {
       try {
         const response = await fetch('/latest', {
@@ -138,10 +106,11 @@
           document.getElementById('lyrics').textContent =
             data.lyrics || '(none)';
 
+          // Automatically sing when new text is scanned
           if (
             isNew &&
             data.notes?.length &&
-            document.getElementById('auto').checked
+            audioEnabled
           ) {
             await run(() => sing(data.notes, data.lyrics));
           }

@@ -28,25 +28,29 @@ def main():
             text = recognize_text(frame, reader)
             print("Detected:", repr(text))
             bob = repr(text)
+            elese = []
             apr = []
             for char in bob:
                 c = char.lower()
                 if c=='a':
                     apr.append(c)
-                if c=='b':
+                elif c=='b':
                     apr.append(c)
-                if c=='c':
+                elif c=='c':
                     apr.append(c)
-                if c=='d':
+                elif c=='d':
                     apr.append(c)
-                if c=='e':
+                elif c=='e':
                     apr.append(c)
-                if c=='f':
+                elif c=='f':
                     apr.append(c)
-                if c=='g':
+                elif c=='g':
                     apr.append(c)
+                else:
+                    elese.append(c)
     
-                print(apr[1])
+                print(apr[0])
+                print(elese[0])
 
         elif key == ord('q'):
             break

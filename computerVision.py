@@ -27,9 +27,9 @@ def main():
         if key == ord('s'):
             text = recognize_text(frame, reader)
             print("Detected:", repr(text))
-            bob = repr(text)
-            elese = []
-            apr = []
+            bob = repr(text) # takes string
+            elese = []# all characters that are not abcdefg
+            apr = []# all notes abcdefg
             for char in bob:
                 c = char.lower()
                 if c=='a':
@@ -49,7 +49,7 @@ def main():
                 else:
                     elese.append(c)
     
-                print(apr[0])
+                print(apr[0]) # prints first element
                 print(elese[0])
 
         elif key == ord('q'):

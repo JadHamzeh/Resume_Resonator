@@ -12,7 +12,13 @@ import numpy as np
 from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__, static_folder='.')
+@app.get('/latest.png')
+def latest_png():
+    return send_from_directory('.', 'latest.png')
 
+@app.get('/images.png')
+def images_png():
+    return send_from_directory('.', 'images.png')
 latest = {
     'id': 0,
     'text': '',

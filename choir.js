@@ -1,142 +1,171 @@
 
-import SamJs from 'https://esm.sh/sam-js';
-
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-const PITCHES = {
-    c: 40,
-    d: 45,
-    e: 50,
-    f: 53,
-    g: 60,
-    a: 67,
-    b: 75
+// Frequencies for individual notes
+const FREQUENCIES = {
+    c: 261.63,
+    d: 293.66,
+    e: 329.63,
+    f: 349.23,
+    g: 392.00,
+    a: 440.00,
+    b: 493.88
 };
 
+// Major chords: root, major third, perfect fifth
+const CHORDS = {
+    c: [261.63, 311.13, 392.00],  // C minor: C Eb G
+    d: [293.66, 349.23, 440.00],  // D minor: D F A
+    e: [329.63, 392.00, 493.88],  // E minor: E G B
+    f: [349.23, 415.30, 523.25],  // F minor: F Ab C
+    g: [392.00, 466.16, 587.33],  // G minor: G Bb D
+    a: [440.00, 523.25, 659.25],  // A minor: A C E
+    b: [493.88, 587.33, 739.99]   // B minor: B D F#
+};
+
+// Enable browser audio
 export async function unlockAudio() {
     if (audioCtx.state === 'suspended') {
         await audioCtx.resume();
     }
 
-    console.log("Audio state:", audioCtx.state);
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+    }
+
     return audioCtx.state === 'running';
 }
 
-function getSamPitch(note, octaveJump) {
-    return Math.min(255, PITCHES[note] + octaveJump * 12);
-}
+// Play a piano-like major chord
+function playPianoNote(note, duration = 0.7) {
+    const chord = CHORDS[note];
 
-export async function singSamChoir(notesArray, textArray) {
-    await unlockAudio();
+    if (!chord) return;
 
-    const noteCounts = {};
+    const startTime = audioCtx.currentTime;
 
-    for (const rawNote of notesArray) {
-        const note = String(rawNote).toLowerCase().trim();
+    // Play all three notes of the major chord
+    for (const frequency of chord) {
+        const masterGain = audioCtx.createGain();
 
-        if (Object.hasOwn(PITCHES, note)) {
-            noteCounts[note] = (noteCounts[note] || 0) + 1;
-        }
-    }
+        // Piano-like attack and decay
+        masterGain.gain.setValueAtTime(
+            0.0001,
+            startTime
+        );
 
-    const uniqueNotes = Object.keys(noteCounts);
+        masterGain.gain.exponentialRampToValueAtTime(
+            0.12,
+            startTime + 0.01
+        );
 
-    if (uniqueNotes.length === 0) {
-        console.warn("No valid notes detected");
-        return 0;
-    }
+        masterGain.gain.exponentialRampToValueAtTime(
+            0.001,
+            startTime + duration
+        );
 
-    const rawLyric = textArray.join('').trim();
-    const lyric = rawLyric
-        .replace(/[^a-zA-Z ]/g, '')
-        .trim() || 'LA';
+        masterGain.connect(audioCtx.destination);
 
-    console.log("Singing:", lyric);
-    console.log("Notes:", uniqueNotes);
+        // Harmonics to create a piano-like sound
+        const harmonics = [
+            [1, 1.0],
+            [2, 0.35],
+            [3, 0.15],
+            [4, 0.08]
+        ];
 
-    const masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.6 / Math.sqrt(uniqueNotes.length);
-    masterGain.connect(audioCtx.destination);
-
-    const startTime = audioCtx.currentTime + 0.1;
-    let voicesPlayed = 0;
-
-    for (const note of uniqueNotes) {
-        const octaveJump = Math.min(2, noteCounts[note] - 1);
-        const pitch = getSamPitch(note, octaveJump);
-
-        const sam = new SamJs({
-            pitch: pitch,
-            singmode: true,
-            speed: 72,
-            mouth: 128,
-            throat: 128
-        });
-
-        let samples = null;
-
-        try {
-            samples = sam.buf32(lyric);
-
-            if (!samples || samples.length === 0) {
-                console.warn("SAM failed for:", lyric);
-                samples = sam.buf32("LA");
-            }
-        } catch (error) {
-            console.error("SAM synthesis error:", error);
-        }
-
-        if (!samples || samples.length === 0) {
-            console.warn("Using oscillator fallback for:", note);
-
+        for (const [multiplier, volume] of harmonics) {
             const oscillator = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
 
-            const frequencies = {
-                c: 130.81,
-                d: 146.83,
-                e: 164.81,
-                f: 174.61,
-                g: 196.00,
-                a: 220.00,
-                b: 246.94
-            };
-
             oscillator.type = 'sine';
-            oscillator.frequency.value =
-                frequencies[note] * Math.pow(2, octaveJump);
 
-            gain.gain.setValueAtTime(0.15, startTime);
-            gain.gain.exponentialRampToValueAtTime(
-                0.001, startTime + 0.8
-            );
+            oscillator.frequency.value =
+                frequency * multiplier;
+
+            gain.gain.value = volume;
 
             oscillator.connect(gain);
             gain.connect(masterGain);
 
             oscillator.start(startTime);
-            oscillator.stop(startTime + 0.8);
 
-            voicesPlayed++;
-            continue;
+            oscillator.stop(
+                startTime + duration + 0.02
+            );
         }
+    }
+}
 
-        const audioBuffer = audioCtx.createBuffer(
-            1,
-            samples.length,
-            22050
-        );
+// Wait for a specified number of milliseconds
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-        audioBuffer.getChannelData(0).set(samples);
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(masterGain);
-        source.start(startTime);
-
-        voicesPlayed++;
+// Speak all lyrics continuously
+function speakLyrics(lyrics) {
+    if (!('speechSynthesis' in window)) {
+        console.warn('Speech synthesis not supported');
+        return;
     }
 
-    console.log("Voices scheduled:", voicesPlayed);
-    return voicesPlayed;
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(
+        lyrics || 'LA'
+    );
+
+    utterance.lang = 'en-US';
+
+    // Speech settings
+    utterance.rate = 1.5;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    window.speechSynthesis.speak(utterance);
+}
+
+// Main function called by index.html
+export async function singSamChoir(notesArray, textArray) {
+    await unlockAudio();
+
+    // Validate detected notes
+    const notes = notesArray
+        .map(note => String(note).toLowerCase().trim())
+        .filter(note => Object.hasOwn(CHORDS, note));
+
+    // Convert lyrics to a string
+    const lyrics = Array.isArray(textArray)
+        ? textArray.join('')
+        : String(textArray || '');
+
+    if (notes.length === 0) {
+        console.warn('No valid notes detected');
+        return 0;
+    }
+
+    console.log('Detected notes:', notes);
+    console.log('Lyrics:', lyrics);
+
+    // Start speaking lyrics
+    speakLyrics(lyrics);
+
+    // Play major chords sequentially
+    for (let i = 0; i < notes.length; i++) {
+        const note = notes[i];
+
+        console.log(
+            `Playing ${note.toUpperCase()} major chord`
+        );
+
+        // Play chord
+        playPianoNote(note, 0.5);
+
+        // Delay before next chord
+        await sleep(350);
+    }
+
+    console.log('Finished playing chords');
+
+    return notes.length;
 }

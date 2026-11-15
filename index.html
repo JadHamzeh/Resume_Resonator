@@ -1,26 +1,159 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SAM Choir Synth</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR SAM Choir</title>
 </head>
 <body>
-  <button id="singBtn">Sing Choir Chord</button>
+  <h1>OCR SAM Choir</h1>
+
+  <button id="enable">Enable Audio</button>
+  <button id="tone">Test Speaker</button>
+  <button id="test">Test Choir</button>
+  <button id="song">Play Last Scan</button>
+
+  <p id="status">Loading choir.js...</p>
+
+  <p>Detected: <span id="detected">—</span></p>
+  <p>Notes: <span id="notes">—</span></p>
+  <p>Lyrics: <span id="lyrics">—</span></p>
+
+  <label>
+    <input type="checkbox" id="auto" checked>
+    Automatically sing new scans
+  </label>
 
   <script type="module">
-    import { singSamChoir } from './choir.js';
+    const status = document.getElementById('status');
 
-    document.getElementById('singBtn').addEventListener('click', () => {
-      // Example input:
-      // 'a' appears twice -> jumps 1 octave (Octave 4)
-      // 'b' appears twice -> jumps 1 octave (Octave 4)
-      // 'c', 'd' appear once -> stay at default (Octave 3)
-      //const notes = ['a', 'b', 'b', 'a', 'c', 'd'];
-      const textArray = ['h', 'e', 'l', 'l', 'o'];
-      const notes = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    let choir;
+    let lastId = -1;
+    let latest = null;
 
-      singSamChoir(notes, textArray);
-    });
+    try {
+      choir = await import('./choir.js');
+      status.textContent = 'Ready. Click Enable Audio.';
+    } catch (error) {
+      status.textContent = 'Cannot load choir.js: ' + error.message;
+      console.error(error);
+    }
+
+    async function run(action) {
+      try {
+        if (!choir) {
+          throw new Error('choir.js did not load.');
+        }
+        await action();
+      } catch (error) {
+        status.textContent = 'ERROR: ' + error.message;
+        console.error(error);
+      }
+    }
+
+    async function sing(notes, lyrics) {
+      const voices = await choir.singSamChoir(
+        notes,
+        [...(lyrics || 'LA')]
+      );
+
+      status.textContent =
+        `Scheduled ${voices} voice(s): ${lyrics || 'LA'}`;
+    }
+
+    document.getElementById('enable').onclick = () =>
+      run(async () => {
+        const enabled = await choir.unlockAudio();
+        if (!enabled) {
+          throw new Error('Audio could not be enabled.');
+        }
+        status.textContent = 'Audio enabled!';
+      });
+
+    document.getElementById('tone').onclick = () =>
+      run(async () => {
+        await choir.unlockAudio();
+
+        // Independent speaker test
+        const ctx = new AudioContext();
+        await ctx.resume();
+
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        oscillator.frequency.value = 440;
+        oscillator.type = 'sine';
+
+        gain.gain.value = 0.15;
+
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+
+        oscillator.start();
+        oscillator.stop(ctx.currentTime + 0.5);
+
+        oscillator.onended = () => ctx.close();
+
+        status.textContent = 'Playing 440 Hz test tone.';
+      });
+
+    document.getElementById('test').onclick = () =>
+      run(() => sing(['a', 'c', 'e'], 'HELLO'));
+
+    document.getElementById('song').onclick = () =>
+      run(async () => {
+        if (!latest?.notes?.length) {
+          throw new Error(
+            'No scanned notes. Press S in the camera window.'
+          );
+        }
+
+        await sing(latest.notes, latest.lyrics);
+      });
+
+    async function poll() {
+      try {
+        const response = await fetch('/latest', {
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        latest = data;
+
+        if (data.id !== lastId) {
+          const isNew = lastId !== -1;
+          lastId = data.id;
+
+          document.getElementById('detected').textContent =
+            data.text || '(empty)';
+
+          document.getElementById('notes').textContent =
+            (data.notes || []).join(', ') || '(none)';
+
+          document.getElementById('lyrics').textContent =
+            data.lyrics || '(none)';
+
+          if (
+            isNew &&
+            data.notes?.length &&
+            document.getElementById('auto').checked
+          ) {
+            await run(() => sing(data.notes, data.lyrics));
+          }
+        }
+      } catch (error) {
+        status.textContent =
+          'Python server error: ' + error.message;
+      }
+    }
+
+    setInterval(poll, 500);
+    poll();
   </script>
 </body>
 </html>

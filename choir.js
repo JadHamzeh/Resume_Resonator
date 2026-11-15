@@ -1,94 +1,142 @@
+
 import SamJs from 'https://esm.sh/sam-js';
 
-// Base frequencies for Octave 3 (C3 to B3)
-const BASE_FREQUENCIES = {
-  c: 130.81,
-  d: 146.83,
-  e: 164.81,
-  f: 174.61,
-  g: 196.00,
-  a: 220.00,
-  b: 246.94
-};
-
-// Shared AudioContext for simultaneous playback
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-/**
- * Converts a note letter + octave jump (0, 1, or 2) into a SAM pitch byte.
- */
-function getSamPitch(noteLetter, octaveJump) {
-  const baseHz = BASE_FREQUENCIES[noteLetter];
-  // Each octave jump doubles the frequency (2^0 = 1x, 2^1 = 2x, 2^2 = 4x)
-  const targetHz = baseHz * Math.pow(2, octaveJump);
-  const rawPitch = Math.round(7735 / targetHz);
-  return Math.max(1, Math.min(255, rawPitch));
+const PITCHES = {
+    c: 40,
+    d: 45,
+    e: 50,
+    f: 53,
+    g: 60,
+    a: 67,
+    b: 75
+};
+
+export async function unlockAudio() {
+    if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+    }
+
+    console.log("Audio state:", audioCtx.state);
+    return audioCtx.state === 'running';
 }
 
-/**
- * Plays up to 7 SAM voices simultaneously based on unique notes and duplicate counts.
- * @param {string[]} notesArray - Array of letters 'a'-'g', e.g. ['a', 'b', 'b', 'a', 'c', 'd']
- * @param {string[]} textArray - Array of characters/syllables, e.g. ['h', 'e', 'l', 'l', 'o']
- */
-export function singSamChoir(notesArray, textArray) {
-  // Resume AudioContext if browser paused it prior to user click
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+function getSamPitch(note, octaveJump) {
+    return Math.min(255, PITCHES[note] + octaveJump * 12);
+}
 
-  // 1. Count occurrences of each valid note ('a' through 'g')
-  const noteCounts = {};
-  for (const rawNote of notesArray) {
-    const note = rawNote.toLowerCase().trim();
-    if (BASE_FREQUENCIES[note]) {
-      noteCounts[note] = (noteCounts[note] || 0) + 1;
+export async function singSamChoir(notesArray, textArray) {
+    await unlockAudio();
+
+    const noteCounts = {};
+
+    for (const rawNote of notesArray) {
+        const note = String(rawNote).toLowerCase().trim();
+
+        if (Object.hasOwn(PITCHES, note)) {
+            noteCounts[note] = (noteCounts[note] || 0) + 1;
+        }
     }
-  }
 
-  // 2. Cap at up to 7 unique voices (one per unique note a-g)
-  const uniqueNotes = Object.keys(noteCounts).slice(0, 7);
-  if (uniqueNotes.length === 0) return;
+    const uniqueNotes = Object.keys(noteCounts);
 
-  // 3. Join the text array into a single string for SAM to pronounce
-  const lyric = textArray.join('');
+    if (uniqueNotes.length === 0) {
+        console.warn("No valid notes detected");
+        return 0;
+    }
 
-  // 4. Master gain node prevents audio clipping when 7 SAMs sing at once
-  const masterGain = audioCtx.createGain();
-  masterGain.gain.value = 1 / Math.sqrt(uniqueNotes.length);
-  masterGain.connect(audioCtx.destination);
+    const rawLyric = textArray.join('').trim();
+    const lyric = rawLyric
+        .replace(/[^a-zA-Z ]/g, '')
+        .trim() || 'LA';
 
-  // Sync start time so every SAM begins at the exact same millisecond
-  const startTime = audioCtx.currentTime + 0.05;
+    console.log("Singing:", lyric);
+    console.log("Notes:", uniqueNotes);
 
-  // 5. Render and schedule each unique SAM voice
-  for (const note of uniqueNotes) {
-    const count = noteCounts[note];
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.6 / Math.sqrt(uniqueNotes.length);
+    masterGain.connect(audioCtx.destination);
 
-    // 1 occurrence -> +0 octaves (Base: Octave 3)
-    // 2 occurrences (1 duplicate) -> +1 octave (Octave 4)
-    // 3+ occurrences (2+ duplicates) -> +2 octaves (Octave 5, capped)
-    const octaveJump = Math.min(2, count - 1);
-    const samPitch = getSamPitch(note, octaveJump);
+    const startTime = audioCtx.currentTime + 0.1;
+    let voicesPlayed = 0;
 
-    const sam = new SamJs({
-      pitch: samPitch,
-      singmode: true,
-      speed: 72,
-      mouth: 128,
-      throat: 128
-    });
+    for (const note of uniqueNotes) {
+        const octaveJump = Math.min(2, noteCounts[note] - 1);
+        const pitch = getSamPitch(note, octaveJump);
 
-    // Extract raw 22050 Hz Float32 audio samples from SAM
-    const float32Samples = sam.buf32(lyric);
-    if (!float32Samples || float32Samples.length === 0) continue;
+        const sam = new SamJs({
+            pitch: pitch,
+            singmode: true,
+            speed: 72,
+            mouth: 128,
+            throat: 128
+        });
 
-    // Load samples into a Web Audio buffer and schedule simultaneous playback
-    const audioBuffer = audioCtx.createBuffer(1, float32Samples.length, 22050);
-    audioBuffer.getChannelData(0).set(float32Samples);
+        let samples = null;
 
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(masterGain);
-    source.start(startTime);
-  }
+        try {
+            samples = sam.buf32(lyric);
+
+            if (!samples || samples.length === 0) {
+                console.warn("SAM failed for:", lyric);
+                samples = sam.buf32("LA");
+            }
+        } catch (error) {
+            console.error("SAM synthesis error:", error);
+        }
+
+        if (!samples || samples.length === 0) {
+            console.warn("Using oscillator fallback for:", note);
+
+            const oscillator = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            const frequencies = {
+                c: 130.81,
+                d: 146.83,
+                e: 164.81,
+                f: 174.61,
+                g: 196.00,
+                a: 220.00,
+                b: 246.94
+            };
+
+            oscillator.type = 'sine';
+            oscillator.frequency.value =
+                frequencies[note] * Math.pow(2, octaveJump);
+
+            gain.gain.setValueAtTime(0.15, startTime);
+            gain.gain.exponentialRampToValueAtTime(
+                0.001, startTime + 0.8
+            );
+
+            oscillator.connect(gain);
+            gain.connect(masterGain);
+
+            oscillator.start(startTime);
+            oscillator.stop(startTime + 0.8);
+
+            voicesPlayed++;
+            continue;
+        }
+
+        const audioBuffer = audioCtx.createBuffer(
+            1,
+            samples.length,
+            22050
+        );
+
+        audioBuffer.getChannelData(0).set(samples);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(masterGain);
+        source.start(startTime);
+
+        voicesPlayed++;
+    }
+
+    console.log("Voices scheduled:", voicesPlayed);
+    return voicesPlayed;
 }

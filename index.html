@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SAM Choir Synth</title>
+</head>
+<body>
+  <button id="singBtn">Sing Choir Chord</button>
+
+  <script type="module">
+    import { singSamChoir } from './choir.js';
+
+    document.getElementById('singBtn').addEventListener('click', () => {
+      // Example input:
+      // 'a' appears twice -> jumps 1 octave (Octave 4)
+      // 'b' appears twice -> jumps 1 octave (Octave 4)
+      // 'c', 'd' appear once -> stay at default (Octave 3)
+      //const notes = ['a', 'b', 'b', 'a', 'c', 'd'];
+      const textArray = ['h', 'e', 'l', 'l', 'o'];
+      const notes = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+
+      singSamChoir(notes, textArray);
+    });
+  </script>
+</body>
+</html>

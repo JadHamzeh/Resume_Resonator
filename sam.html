@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <button id="singBtn">Sing Note A3</button>
+
+  <script type="module">
+    // Load sam-js directly from a CDN
+    import SamJs from 'https://esm.sh/sam-js';
+
+    document.getElementById('singBtn').addEventListener('click', () => {
+      const sam = new SamJs({ pitch: 35, singmode: true });
+      const sam2 = new SamJs({ pitch: 45, singmode: true });
+      sam.speak('Hello world');
+      sam2.speak('Hello world');
+    });
+  </script>
+</body>
+</html>

@@ -27,6 +27,26 @@ def main():
         if key == ord('s'):
             text = recognize_text(frame, reader)
             print("Detected:", repr(text))
+            bob = repr(text)
+            apr = []
+            for char in bob:
+                c = char.lower()
+                if c=='a':
+                    apr.append(c)
+                if c=='b':
+                    apr.append(c)
+                if c=='c':
+                    apr.append(c)
+                if c=='d':
+                    apr.append(c)
+                if c=='e':
+                    apr.append(c)
+                if c=='f':
+                    apr.append(c)
+                if c=='g':
+                    apr.append(c)
+    
+                print(apr[1])
 
         elif key == ord('q'):
             break
@@ -36,3 +56,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+#parse abcdefg

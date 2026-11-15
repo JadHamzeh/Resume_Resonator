@@ -4,125 +4,265 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OCR SAM Choir</title>
+
+  <title>OCR Piano Choir</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #171717;
+      color: white;
+      text-align: center;
+      padding: 20px;
+    }
+
+    h1 {
+      margin-bottom: 25px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 700px;
+      border: 3px solid #555;
+      border-radius: 12px;
+      background: black;
+    }
+
+    button {
+      padding: 12px 25px;
+      margin: 10px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #4caf50;
+      color: white;
+    }
+
+    button:hover {
+      background: #388e3c;
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin: 20px;
+      color: #ddd;
+    }
+
+    .results {
+      margin: 25px auto;
+      max-width: 700px;
+      text-align: left;
+      background: #252525;
+      padding: 20px;
+      border-radius: 12px;
+      overflow-wrap: anywhere;
+    }
+  </style>
 </head>
+
 <body>
-  <h1>OCR SAM Choir</h1>
+
+  <h1>OCR Piano Choir</h1>
+
+  <video id="camera" autoplay playsinline muted></video>
+
+  <br>
 
   <button id="enable">Enable Audio</button>
+  <button id="scan">Scan Text</button>
 
-  <p id="status">Loading choir.js...</p>
+  <p id="status">Loading...</p>
 
-  <p>Detected: <span id="detected">—</span></p>
-  <p>Notes: <span id="notes">—</span></p>
-  <p>Lyrics: <span id="lyrics">—</span></p>
+  <div class="results">
+    <p>Detected: <span id="detected">—</span></p>
+    <p>Notes: <span id="notes">—</span></p>
+    <p>Lyrics: <span id="lyrics">—</span></p>
+  </div>
+
+  <canvas id="canvas" style="display:none;"></canvas>
 
   <script type="module">
+
     const status = document.getElementById('status');
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('canvas');
 
-    let choir;
-    let lastId = -1;
-    let latest = null;
+    const enableButton = document.getElementById('enable');
+    const scanButton = document.getElementById('scan');
+
+    let choir = null;
     let audioEnabled = false;
+    let scanning = false;
 
+    // Load choir.js
     try {
       choir = await import('./choir.js');
-      status.textContent = 'Ready. Click Enable Audio.';
+      status.textContent = 'Ready. Enable audio and scan text.';
     } catch (error) {
-      status.textContent =
-        'Cannot load choir.js: ' + error.message;
+      status.textContent = 'Cannot load choir.js: ' + error.message;
       console.error(error);
     }
 
-    async function run(action) {
+    // Start webcam inside webpage
+    async function startCamera() {
       try {
-        if (!choir) {
-          throw new Error('choir.js did not load.');
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'environment'
+          },
+          audio: false
+        });
 
-        await action();
+        video.srcObject = stream;
+
+        await video.play();
+
+        status.textContent = 'Camera ready.';
+
       } catch (error) {
-        status.textContent = 'ERROR: ' + error.message;
+        status.textContent = 'Camera error: ' + error.message;
         console.error(error);
       }
     }
 
-    async function sing(notes, lyrics) {
-      if (!audioEnabled) {
-        status.textContent = 'Click Enable Audio first.';
+    // Enable browser audio
+    enableButton.onclick = async () => {
+      try {
+        if (!choir) {
+          throw new Error('choir.js is not loaded.');
+        }
+
+        audioEnabled = await choir.unlockAudio();
+
+        if (!audioEnabled) {
+          throw new Error('Could not enable audio.');
+        }
+
+        status.textContent = 'Audio enabled. Ready to scan.';
+
+        enableButton.textContent = 'Audio Enabled';
+        enableButton.disabled = true;
+
+      } catch (error) {
+        status.textContent = 'Audio error: ' + error.message;
+        console.error(error);
+      }
+    };
+
+    // Display recognized text
+    function displayResults(data) {
+      document.getElementById('detected').textContent =
+        data.text || '(empty)';
+
+      document.getElementById('notes').textContent =
+        (data.notes || []).join(', ') || '(none)';
+
+      document.getElementById('lyrics').textContent =
+        data.lyrics || '(none)';
+    }
+
+    // Capture image and send to Python
+    async function scanText() {
+      if (scanning) return;
+
+      if (!video.videoWidth || !video.videoHeight) {
+        status.textContent = 'Camera is not ready.';
         return;
       }
 
-      const voices = await choir.singSamChoir(
-        notes,
-        [...(lyrics || 'LA')]
-      );
+      scanning = true;
+      scanButton.disabled = true;
 
-      status.textContent =
-        `Scheduled ${voices} voice(s): ${lyrics || 'LA'}`;
-    }
-
-    // Enable Audio button
-    document.getElementById('enable').onclick = () =>
-      run(async () => {
-        const enabled = await choir.unlockAudio();
-
-        if (!enabled) {
-          throw new Error('Audio could not be enabled.');
-        }
-
-        audioEnabled = true;
-        status.textContent = 'Audio enabled! Ready to scan.';
-
-        document.getElementById('enable').disabled = true;
-        document.getElementById('enable').textContent =
-          'Audio Enabled';
-      });
-
-    // Automatically check for new scans
-    async function poll() {
       try {
-        const response = await fetch('/latest', {
-          cache: 'no-store'
+        status.textContent = 'Scanning text...';
+
+        // Capture current camera frame
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext('2d');
+
+        ctx.drawImage(
+          video,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        // Convert captured frame to image
+        const image = canvas.toDataURL('image/jpeg', 0.9);
+
+        // Send image to Python OCR
+        const response = await fetch('/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ image })
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
         const data = await response.json();
-        latest = data;
 
-        if (data.id !== lastId) {
-          const isNew = lastId !== -1;
-          lastId = data.id;
-
-          document.getElementById('detected').textContent =
-            data.text || '(empty)';
-
-          document.getElementById('notes').textContent =
-            (data.notes || []).join(', ') || '(none)';
-
-          document.getElementById('lyrics').textContent =
-            data.lyrics || '(none)';
-
-          // Automatically sing when new text is scanned
-          if (
-            isNew &&
-            data.notes?.length &&
-            audioEnabled
-          ) {
-            await run(() => sing(data.notes, data.lyrics));
-          }
+        if (!response.ok) {
+          throw new Error(data.error || 'Scan failed');
         }
+
+        displayResults(data);
+
+        status.textContent = 'Scan complete.';
+
+        // Automatically play detected chords and lyrics
+        if (
+          audioEnabled &&
+          choir &&
+          data.notes &&
+          data.notes.length > 0
+        ) {
+          status.textContent = 'Playing chords and lyrics...';
+
+          await choir.singSamChoir(
+            data.notes,
+            [...(data.lyrics || 'LA')]
+          );
+
+          status.textContent = 'Chord sequence finished.';
+        } else if (!audioEnabled && data.notes?.length) {
+          status.textContent =
+            'Scan complete. Enable audio to hear the chords.';
+        }
+
       } catch (error) {
-        status.textContent =
-          'Python server error: ' + error.message;
+        status.textContent = 'Error: ' + error.message;
+        console.error(error);
+
+      } finally {
+        scanning = false;
+        scanButton.disabled = false;
       }
     }
 
-    setInterval(poll, 500);
-    poll();
+    // Scan button
+    scanButton.onclick = scanText;
+
+    // Optional keyboard shortcut: S to scan
+    document.addEventListener('keydown', event => {
+      if (event.key.toLowerCase() === 's' && !event.repeat) {
+        scanText();
+      }
+    });
+
+    // Start camera when page loads
+    startCamera();
+
   </script>
+
 </body>
 </html>

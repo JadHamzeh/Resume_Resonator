@@ -27,6 +27,30 @@ def main():
         if key == ord('s'):
             text = recognize_text(frame, reader)
             print("Detected:", repr(text))
+            bob = repr(text) # takes string
+            elese = []# all characters that are not abcdefg
+            apr = []# all notes abcdefg
+            for char in bob:
+                c = char.lower()
+                if c=='a':
+                    apr.append(c)
+                elif c=='b':
+                    apr.append(c)
+                elif c=='c':
+                    apr.append(c)
+                elif c=='d':
+                    apr.append(c)
+                elif c=='e':
+                    apr.append(c)
+                elif c=='f':
+                    apr.append(c)
+                elif c=='g':
+                    apr.append(c)
+                else:
+                    elese.append(c)
+    
+                print(apr[0]) # prints first element
+                print(elese[0])
 
         elif key == ord('q'):
             break
@@ -36,3 +60,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+#parse abcdefg

@@ -160,9 +160,10 @@ export async function singSamChoir(notesArray, textArray) {
 
         // Play chord
         playPianoNote(note, 0.5);
-
+        document.getElementById("myImage").src = "images.png";
         // Delay before next chord
         await sleep(350);
+        document.getElementById("myImage").src = "latest.png";
     }
 
     console.log('Finished playing chords');
